@@ -48,11 +48,25 @@ async def get_task_count_in_project(db: Session, project_id: int):
     return result.fetchone()[0]
 
 
-def get_task_lists(db: Session, project_id: int):
+def get_task_lists(db: Session, project_id: int, order_by='asc'):
     """
     Get a list of tasks for a project
+    Args:
+        db (Session): Database session object
+        project_id (int): ID of the project for which tasks need to be retrieved
+        order_by (str, optional): The order in which tasks should be returned. Can be 'asc' (ascending) or 'desc' (descending).
+                                  Defaults to 'asc'.
+    Returns:
+        list: List of task IDs in the specified order
     """
-    query = f"""select id from tasks where project_id = {project_id}"""
+    # Validate the order_by parameter to prevent SQL injection
+    if order_by.lower() not in ['asc', 'desc']:
+        raise ValueError("Invalid value for 'order_by'. It should be either 'asc' or 'desc'.")
+
+    # Construct the SQL query with the ORDER BY clause
+    query = f"""SELECT id FROM tasks WHERE project_id = {project_id} ORDER BY id {order_by}"""
+
+    # Execute the query and retrieve the results
     result = db.execute(query)
     tasks = [task[0] for task in result.fetchall()]
     return tasks
