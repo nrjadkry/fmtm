@@ -186,3 +186,70 @@ async def task_features_count(
         )
 
     return data
+
+
+
+
+import concurrent.futures
+import os
+
+@router.get("/tasks-featuresss/")
+async def task_features_count(
+    project_id: int,
+    db: Session = Depends(database.get_db),
+):
+
+    task_list = tasks_crud.get_task_lists(db, project_id)
+
+    # Get the project object.
+    project = project_crud.get_project(db, project_id)
+
+    # ODK Credentials
+    odk_credentials = project_schemas.ODKCentral(
+        odk_central_url=project.odk_central_url,
+        odk_central_user=project.odk_central_user,
+        odk_central_password=project.odk_central_password,
+    )
+
+
+    feature_count_query = f"""
+                            SELECT json_object_agg(task_id, feature_count) AS feature_count_json
+                            FROM (
+                                SELECT task_id, COUNT(*) AS feature_count
+                                FROM features
+                                WHERE project_id = {project_id} AND task_id IS NOT NULL
+                                GROUP BY task_id
+                            ) AS subquery;
+
+                            """
+
+    result = db.execute(feature_count_query)
+    feature_count = (result.fetchone())[0]
+
+    def get_submission_count(task_id):
+        submission_list = central_crud.list_task_submissions(project.odkid, task_id, odk_credentials)
+        submission_count = len(submission_list) if isinstance(submission_list, list) else 0
+        return submission_count
+
+
+    data = []
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+
+        # Submit tasks to ThreadPoolExecutor for concurrent execution
+        submission_futures = {executor.submit(get_submission_count, task): task for task in task_list}
+
+        # Process feature count results
+        for future in concurrent.futures.as_completed(submission_futures):
+            task_id = submission_futures[future]
+            try:
+                submission_count = future.result()
+                data.append({
+                    'task_id': task_id,
+                    "feature_count": feature_count.get(str(task_id), 0),
+                    'submission_count': submission_count
+                })
+            except Exception as e:
+                print(f"Error occurred while processing task {task_id}: {e}")
+
+
+    return data
