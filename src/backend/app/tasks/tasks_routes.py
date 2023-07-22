@@ -19,16 +19,15 @@
 import json
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
+from ..central import central_crud
 from ..db import database
 from ..models.enums import TaskStatus
+from ..projects import project_crud, project_schemas
 from ..users import user_schemas
 from . import tasks_crud, tasks_schemas
-from ..projects import project_crud, project_schemas
-from ..central import central_crud
-
 
 router = APIRouter(
     prefix="/tasks",
@@ -43,13 +42,13 @@ async def read_task_list(
     project_id: int,
     limit: int = 1000,
     db: Session = Depends(database.get_db),
-    ):
+):
     tasks = tasks_crud.get_tasks(db, project_id, limit)
     if tasks:
         return tasks
     else:
         raise HTTPException(status_code=404, detail="Tasks not found")
-    
+
 
 @router.get("/", response_model=List[tasks_schemas.TaskOut])
 async def read_tasks(
@@ -119,13 +118,12 @@ async def edit_task_boundary(
     task_id: int,
     boundary: UploadFile = File(...),
     db: Session = Depends(database.get_db),
-    ):
-
+):
     # read entire file
     content = await boundary.read()
     boundary_json = json.loads(content)
 
-    edit_boundary = await tasks_crud.edit_task_boundary(db, task_id, boundary_json)    
+    edit_boundary = await tasks_crud.edit_task_boundary(db, task_id, boundary_json)
 
     return edit_boundary
 
@@ -134,8 +132,16 @@ async def edit_task_boundary(
 async def task_features_count(
     project_id: int,
     db: Session = Depends(database.get_db),
-    ):
+):
+    """Get the count of features and submissions for each task in a project.
 
+    Parameters:
+        project_id (int): The ID of the project.
+
+    Response:
+        list: A list of dictionaries containing the task ID, feature count, and submission count for each task.
+
+    """
     task_list = tasks_crud.get_task_lists(db, project_id)
 
     # Get the project object.
@@ -143,26 +149,40 @@ async def task_features_count(
 
     # ODK Credentials
     odk_credentials = project_schemas.ODKCentral(
-        odk_central_url = project.odk_central_url,
-        odk_central_user = project.odk_central_user,
-        odk_central_password = project.odk_central_password,
-        )
+        odk_central_url=project.odk_central_url,
+        odk_central_user=project.odk_central_user,
+        odk_central_password=project.odk_central_password,
+    )
 
     data = []
+
+    feature_count_query = f"""
+                            SELECT json_object_agg(task_id, feature_count) AS feature_count_json
+                            FROM (
+                                SELECT task_id, COUNT(*) AS feature_count
+                                FROM features
+                                WHERE project_id = {project_id} AND task_id IS NOT NULL
+                                GROUP BY task_id
+                            ) AS subquery;
+
+                            """
+
+    result = db.execute(feature_count_query)
+    feature_count = (result.fetchone())[0]
+
     for task in task_list:
-        
-        feature_count_query = f"""
-            select count(*) from features where project_id = {project_id} and task_id = {task}
-        """
-        result = db.execute(feature_count_query)
-        feature_count = result.fetchone()
+        submission_list = central_crud.list_task_submissions(
+            project.odkid, task, odk_credentials
+        )
 
-        submission_list = central_crud.list_task_submissions(project.odkid, task, odk_credentials)
-
-        data.append({
-            'task_id': task,
-            'feature_count': feature_count['count'],
-            'submission_count': len(submission_list) if isinstance(submission_list, list) else 0
-        })
+        data.append(
+            {
+                "task_id": task,
+                "feature_count": feature_count.get(str(task), 0),
+                "submission_count": len(submission_list)
+                if isinstance(submission_list, list)
+                else 0,
+            }
+        )
 
     return data
