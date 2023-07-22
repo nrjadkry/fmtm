@@ -211,6 +211,8 @@ async def task_features_count(
         odk_central_password=project.odk_central_password,
     )
 
+    # Get the number of CPU cores
+    cpu_cores = os.cpu_count()
 
     feature_count_query = f"""
                             SELECT json_object_agg(task_id, feature_count) AS feature_count_json
@@ -233,7 +235,7 @@ async def task_features_count(
 
 
     data = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers = cpu_cores*2) as executor:
 
         # Submit tasks to ThreadPoolExecutor for concurrent execution
         submission_futures = {executor.submit(get_submission_count, task): task for task in task_list}
