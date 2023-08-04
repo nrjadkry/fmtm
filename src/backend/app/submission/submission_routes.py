@@ -146,3 +146,11 @@ async def get_submission_count(
     db: Session = Depends(database.get_db),
     ):
     return await submission_crud.get_submission_count_of_a_project(db, project_id)
+
+
+@router.get("/download-submission/{project_id}")
+async def download_submission(
+    project_id: int,
+    db: Session = Depends(database.get_db),
+    ):
+    return await submission_crud.download_project_submission(db, project_id)

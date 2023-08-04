@@ -496,6 +496,23 @@ def get_submission_points(db: Session, project_id: int, task_id: int = None):
         return None
 
 
+async def download_project_submission(db: Session, project_id: int):
+
+    project_info = project_crud.get_project(db, project_id)
+
+    odk_credentials = project_schemas.ODKCentral(
+        odk_central_url=project_info.odk_central_url,
+        odk_central_user=project_info.odk_central_user,
+        odk_central_password=project_info.odk_central_password,
+    )
+
+    project = get_odk_project(odk_credentials)
+
+    submissions = project.getAllSubmissions(project_info.odkid)
+    return submissions
+
+
+
 async def get_submission_count_of_a_project(db:Session, 
                                       project_id: int):
 
